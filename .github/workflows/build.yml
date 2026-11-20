@@ -16,17 +16,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # دریافت سورس پروژه
+      # Checkout source code
       - name: Checkout
         uses: actions/checkout@v4
 
-      # خواندن شماره نسخه از app/build.gradle
+      # Read application version
       - name: Read App Version
         id: version
         run: |
           VERSION=$(grep -m1 'versionName' app/build.gradle | sed -E 's/.*versionName[[:space:]]+"([^"]+)".*/\1/')
 
-          if [ -z "$VERSION" ]; then
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$(grep -m1 'versionName' app/build.gradle)" ]; then
             echo "Could not read app version"
             exit 1
           fi
@@ -34,51 +34,59 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "App version: $VERSION"
 
-      # نصب جاوا 17 برای Android SDK
+      # Java 17 for Android SDK
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # آماده سازی Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # اضافه کردن ابزارهای Android به PATH
-      - name: Add Android SDK to PATH
+      # Locate preinstalled Android SDK
+      - name: Configure Android SDK
         run: |
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found"
+            exit 1
+          fi
+
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
-      # قبول مجوزهای Android SDK
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses
+          echo "SDK Manager found: $SDKMANAGER"
 
-      # نصب ابزارهای مورد نیاز
+      # Accept Android licenses
+      - name: Accept Android Licenses
+        run: |
+          yes | sdkmanager --licenses
+
+      # Install required packages
       - name: Install Android Tools
         run: |
           sdkmanager \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;30.0.3" \
-            "cmake;3.22.1" \
             "ndk;21.4.7075529"
 
-      # جاوا 11 برای Gradle قدیمی پروژه
+      # Java 11 for old Gradle
       - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
 
-      # ساخت APK یونیورسال
+      # Build Universal APK
       - name: Build Universal APK
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleUniversalDebug
 
-      # پیدا کردن APK و آماده سازی فایل انتشار
+      # Prepare APK
       - name: Prepare APK
         run: |
           mkdir -p release
@@ -86,7 +94,7 @@ jobs:
           APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "APK file not found"
+            echo "APK not found!"
             exit 1
           fi
 
@@ -94,7 +102,7 @@ jobs:
 
           echo "APK prepared successfully"
 
-      # ذخیره فایل APK در Artifacts
+      # Upload artifact
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -102,7 +110,7 @@ jobs:
           path: release/*.apk
           if-no-files-found: error
 
-      # انتشار خودکار در GitHub Releases
+      # Publish GitHub Release
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
@@ -113,6 +121,9 @@ jobs:
 
             Version: ${{ steps.version.outputs.version }}
 
-            Universal APK for ARMv7 and ARM64.
+            Supports:
+            - ARMv7 (armeabi-v7a)
+            - ARM64 (arm64-v8a)
           files: release/*.apk
           fail_on_unmatched_files: true
+          make_latest: true
