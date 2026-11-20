@@ -8,6 +8,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,18 +25,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Add Android SDK to PATH
-        run: |
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses
+        run: yes | sdkmanager --licenses
 
       - name: Install Android tools
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;30.0.3" "ndk;21.4.7075529"
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;30.0.3" \
+            "ndk;21.4.7075529"
 
       - name: Setup Java 11 for Gradle
         uses: actions/setup-java@v4
@@ -46,9 +50,34 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleUniversalDebug
 
-      - name: Upload APK
+      - name: Prepare APK
+        run: |
+          APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
+
+          cp "$APK" BlackDex-Universal.apk
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: BlackDex-Universal-APK
-          path: app/build/outputs/**/*.apk
+          path: BlackDex-Universal.apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: BlackDex Universal v1.0.${{ github.run_number }}
+          body: |
+            BlackDex Universal APK
+
+            Supports:
+            - ARMv7 (armeabi-v7a)
+            - ARM64 (arm64-v8a)
+          files: BlackDex-Universal.apk
+          fail_on_unmatched_files: true
