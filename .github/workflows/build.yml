@@ -24,9 +24,14 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+          packages: ''
 
       - name: Accept Android licenses
-        run: yes | sdkmanager --licenses
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses
 
       - name: Install Android tools
         run: |
