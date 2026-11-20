@@ -16,59 +16,103 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # دریافت سورس پروژه
       - name: Checkout
         uses: actions/checkout@v4
 
+      # خواندن شماره نسخه از app/build.gradle
+      - name: Read App Version
+        id: version
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle | sed -E 's/.*versionName[[:space:]]+"([^"]+)".*/\1/')
+
+          if [ -z "$VERSION" ]; then
+            echo "Could not read app version"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "App version: $VERSION"
+
+      # نصب جاوا 17 برای Android SDK
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # آماده سازی Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # اضافه کردن ابزارهای Android به PATH
+      - name: Add Android SDK to PATH
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      # قبول مجوزهای Android SDK
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses
+
+      # نصب ابزارهای مورد نیاز
+      - name: Install Android Tools
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;30.0.3" \
+            "cmake;3.22.1" \
+            "ndk;21.4.7075529"
+
+      # جاوا 11 برای Gradle قدیمی پروژه
       - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses || true
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;30.0.3" \
-            "cmake;3.10.2" \
-            "ndk;21.4.7075529"
-
+      # ساخت APK یونیورسال
       - name: Build Universal APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleUniversalDebug
+          ./gradlew --no-daemon assembleUniversalDebug
 
+      # پیدا کردن APK و آماده سازی فایل انتشار
       - name: Prepare APK
         run: |
-          mkdir -p release-apk
+          mkdir -p release
+
           APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+
           if [ -z "$APK" ]; then
-            echo "APK file not found!"
+            echo "APK file not found"
             exit 1
           fi
-          cp "$APK" release-apk/BlackDex-Universal.apk
 
+          cp "$APK" "release/BlackDex-${{ steps.version.outputs.version }}-Universal.apk"
+
+          echo "APK prepared successfully"
+
+      # ذخیره فایل APK در Artifacts
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BlackDex-Universal-APK
-          path: release-apk/BlackDex-Universal.apk
+          name: BlackDex-${{ steps.version.outputs.version }}-Universal
+          path: release/*.apk
+          if-no-files-found: error
 
+      # انتشار خودکار در GitHub Releases
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: universal-build-${{ github.run_number }}
-          name: BlackDex Universal Build ${{ github.run_number }}
-          files: release-apk/BlackDex-Universal.apk
-          make_latest: true
+          tag_name: v${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }} BlackDex Universal
           body: |
+            BlackDex Universal
+
+            Version: ${{ steps.version.outputs.version }}
+
             Universal APK for ARMv7 and ARM64.
-            Built automatically with GitHub Actions.
+          files: release/*.apk
+          fail_on_unmatched_files: true
