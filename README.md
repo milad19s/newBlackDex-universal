@@ -24,5 +24,7 @@ This powerful app is specifically designed for DEX dumping from RAM, making it t
 🔧 Technical Notes:
 
 ⭐ Root access is required.
+
 ⭐ "All Files Access" permission is needed.
+
 ⭐ Some highly advanced protectors may not be dumpable.
